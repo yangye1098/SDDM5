@@ -95,9 +95,9 @@ def main(config):
             name = infer_dataset.getName(idx)
 
             # stack back to full audio
-            torchaudio.save(output_path/f'{name}.wav', output.squeeze(0).cpu(), sample_rate)
-            torchaudio.save(target_path/f'{name}.wav', clean_audio.squeeze(0).cpu(), sample_rate)
-            torchaudio.save(condition_path/f'{name}.wav', noisy_audio.squeeze(0).cpu(), sample_rate)
+            torchaudio.save(output_path/f'{name}.wav', output.cpu(), sample_rate)
+            torchaudio.save(target_path/f'{name}.wav', clean_audio.cpu(), sample_rate)
+            torchaudio.save(condition_path/f'{name}.wav', noisy_audio.cpu(), sample_rate)
 
             # computing loss, metrics on test set
 
