@@ -22,10 +22,6 @@ def main(config):
     logger = config.get_logger('infer')
 
     # setup data_loader instances
-    spec_config = config['spectrogram']
-    n_spec_frames = -1
-
-    # setup data_loader instances
     sample_rate = config['sample_rate']
 
     spec_transformer = config.init_obj('spec_transformer', module_data)
@@ -37,8 +33,8 @@ def main(config):
     # build model architecture
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    diffusion = config.init_obj('diffusion', module_diffusion, device=device)
-    network = config.init_obj('network', module_network, spec_config=spec_config, num_timesteps=diffusion.num_timesteps)
+    diffusion = config.init_obj('diffusion', module_diffusion)
+    network = config.init_obj('network', module_network)
     # prepare model for testing
     network = network.to(device)
 
