@@ -2,16 +2,16 @@ import argparse
 import torch
 import torchaudio
 from tqdm import tqdm
-import data_loader.data_loaders as module_data
+
+import data_loader as module_data
 import model.loss as module_loss
 import model.metric as module_metric
 import model.model as module_arch
-
-
-import model.diffusion as module_diffusion
+import model.sde as module_diffusion
 import model.network as module_network
+
 from evaluate_results import evaluate
-from torch.utils.data import DataLoader
+from data_loader import DataLoader
 from parse_config import ConfigParser
 
 torch.backends.cudnn.benchmark = True
@@ -28,7 +28,8 @@ def main(config):
     # setup data_loader instances
     sample_rate = config['sample_rate']
 
-    infer_dataset = config.init_obj('infer_dataset', module_data, n_spec_frames=n_spec_frames, spec_config=spec_config, sample_rate=config['sample_rate'])
+    spec_transformer = config.init_obj('spec_transformer', module_data)
+    infer_dataset = config.init_obj('infer_dataset', module_data, T=-1, sample_rate=sample_rate)
     infer_data_loader = DataLoader(infer_dataset, batch_size=1, num_workers=1, shuffle=False)
 
     logger.info('Finish initializing datasets')
@@ -70,12 +71,28 @@ def main(config):
 
     n_samples = len(infer_data_loader)
     with torch.no_grad():
-        for i, (clean_audio, noisy_audio, noisy_spec, idx) in tqdm(enumerate(infer_data_loader), desc='infer process', total=n_samples):
-            clean_audio, noisy_audio = clean_audio.to(device), noisy_audio.to(device)
-            noisy_spec = noisy_spec.to(device)
+        for i, (clean_audio, noisy_audio, idx) in tqdm(enumerate(infer_data_loader), desc='infer process', total=n_samples):
+            clean_audio, noisy_audio = clean_audio.to(device).squeeze(0), noisy_audio.to(device).squeeze(0)
             # infer from conditional input only
 
-            output = model.infer(noisy_audio, noisy_spec)
+            norm_factor = noisy_audio.abs().max().item()
+            noisy_audio = noisy_audio / norm_factor
+            # [1,1,N,L]
+            noisy_spec = torch.unsqueeze(spec_transformer.spec_fwd(spec_transformer.stft(noisy_audio)), 0)
+
+            T = noisy_spec.shape[-1]
+            if T % 64 != 0:
+                num_pad = 64 - T % 64
+            else:
+                num_pad = 0
+            noisy_spec = torch.nn.functional.pad(noisy_spec, (0, num_pad, 0, 0), 'constant', 0)
+
+            output = model.infer(noisy_spec)
+
+            output = spec_transformer.istft(spec_transformer.spec_back(output.squeeze()),
+                                                  clean_audio.shape[-1])
+            output = output * norm_factor
+            output = output.view((1, output.shape[-1]))  # [1, T]
 
             # save samples, or do something with output here
 
