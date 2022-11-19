@@ -35,7 +35,7 @@
         }
     },
     "network": {
-        "type": "UNet",
+        "type": "NCSNPP_REP",
         "args": {
             "in_channel": 4,
             "out_channel": 2,

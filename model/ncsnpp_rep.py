@@ -147,7 +147,7 @@ class ResnetBlock(nn.Module):
             dim, dim_out, 1) if dim != dim_out else nn.Identity()
         self.with_attn = with_attn
         if with_attn:
-            self.attn = AttnBlock(dim)
+            self.attn = AttnBlock(dim_out)
 
     def forward(self, x, time_emb):
         # time_emb: [B, noise_level_emb_dim]
@@ -190,6 +190,7 @@ class NCSNPP_REP(nn.Module):
         self.downs = nn.ModuleList([])
 
         self.progressive_downs = nn.ModuleList([])
+        self.progressive_down_branches = nn.ModuleList([])
         self.combiners = nn.ModuleList([])
 
         # record the number of output channels
@@ -206,8 +207,6 @@ class NCSNPP_REP(nn.Module):
                 self.downs.append(ResnetBlock(
                     n_channel_in, n_channel_out, noise_level_emb_dim=noise_level_channels, dropout=dropout, with_attn=use_attn))
 
-                if ind in attn_layers:
-                    self.downs.append(AttnBlock(n_channel_out))
 
 
                 feat_channels.append(n_channel_out)
@@ -215,10 +214,8 @@ class NCSNPP_REP(nn.Module):
 
             # doesn't change # channels
             self.downs.append(Downsample(n_channel_out))
-            self.progressive_downs.append(nn.Sequential(
-                Downsample(in_channel),
-                nn.Conv2d(in_channel, n_channel_out, kernel_size=1)
-            ))
+            self.progressive_downs.append(Downsample(in_channel))
+            self.progressive_down_branches.append(nn.Conv2d(in_channel, n_channel_out, kernel_size=1))
             feat_channels.append(n_channel_out)
 
         n_channel_out = n_channel_in
@@ -234,29 +231,22 @@ class NCSNPP_REP(nn.Module):
                 n_channel_in, n_channel_out, noise_level_emb_dim=noise_level_channels, dropout=dropout, with_attn=False))
 
         self.ups = nn.ModuleList([])
-        self.progressive_branches = nn.ModuleList([])
+        self.progressive_up_branches = nn.ModuleList([])
         self.progressive_ups = nn.ModuleList([])
 
 
         for ind in reversed(range(num_mults)):
 
             n_channel_in = inner_channel * channel_mults[ind]
+            n_channel_out = n_channel_in
 
-            if ind == 0:
-                n_channel_out = inner_channel
-            else:
-                n_channel_out = inner_channel * channel_mults[ind-1]
-            # combine resnet block skip connection
-            use_attn = ind in attn_layers
-            for _ in range(0, res_blocks+1):
-                self.ups.append(ResnetBlock(
-                    n_channel_in+feat_channels.pop(), n_channel_out, noise_level_emb_dim=noise_level_channels,
-                    dropout=dropout, with_attn=use_attn))
-
-                n_channel_in = n_channel_out
+            # combine skip connection from down sample layers
+            self.ups.append(ResnetBlock(
+                n_channel_in + feat_channels.pop(), n_channel_out, noise_level_emb_dim=noise_level_channels,
+                dropout=dropout, with_attn=False))
 
             # up sample
-            self.progressive_branches.append(nn.Sequential(
+            self.progressive_up_branches.append(nn.Sequential(
                     nn.GroupNorm(num_groups=min(n_channel_out // 4, 32), num_channels=n_channel_out),
                     Swish(),
                     nn.Conv2d(n_channel_out, in_channel, kernel_size=3, padding=1),
@@ -265,10 +255,25 @@ class NCSNPP_REP(nn.Module):
 
             self.ups.append(Upsample(n_channel_out))
 
+            if ind == 0:
+                n_channel_out = inner_channel
+            else:
+                n_channel_out = inner_channel * channel_mults[ind-1]
+            # combine resnet block skip connection
+            use_attn = ind in attn_layers
+            for _ in range(0, res_blocks):
+                self.ups.append(ResnetBlock(
+                    n_channel_in+feat_channels.pop(), n_channel_out, noise_level_emb_dim=noise_level_channels,
+                    dropout=dropout, with_attn=use_attn))
+
+                n_channel_in = n_channel_out
+
+
 
 
         n_channel_in = n_channel_out
-        self.final_conv = Block(n_channel_in, out_channel, groups=norm_groups)
+        self.final_conv = nn.Conv2d(in_channel, out_channel,kernel_size=1)
+        #self.final_conv = Block(n_channel_in, out_channel, groups=norm_groups)
 
 
 
@@ -280,12 +285,12 @@ class NCSNPP_REP(nn.Module):
         """
         # expand to 4d
         input = torch.cat([x_t.real, x_t.imag, noisy_condition.real, noisy_condition.imag], dim=1)
+        progressive_input = input
         input = self.first_conv(input)
         # time  is in [t_eps, 1]
 
         t = self.noise_level_emb(time)
 
-        progressive_input = input
         n_down = 0
         feats = []
         for layer in self.downs:
@@ -295,7 +300,7 @@ class NCSNPP_REP(nn.Module):
                 # downsample layer
                 input = layer(input)
                 progressive_input = self.progressive_downs[n_down](progressive_input)
-                input = input + progressive_input # sum
+                input = input + self.progressive_down_branches[n_down](progressive_input) # sum
                 n_down = n_down + 1
             feats.append(input)
 
@@ -310,7 +315,7 @@ class NCSNPP_REP(nn.Module):
             if isinstance(layer, ResnetBlock):
                 input = layer(torch.cat((input, feats.pop()), dim=1), t)
             else:
-                progressive_input = progressive_input + self.progressive_branches[n_up](input)
+                progressive_input = progressive_input + self.progressive_up_branches[n_up](input)
                 # upsample layer
                 input = layer(input)
                 progressive_input = self.progressive_ups[n_up](progressive_input)

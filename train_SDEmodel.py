@@ -31,9 +31,8 @@ def main(config):
         world_size = 1
 
     n_gpu = torch.cuda.device_count()
-
     # only work with 1 gpu per node
-    assert n_gpu == 1
+    assert n_gpu <= 1
 
 
     if world_size > 1:
@@ -45,9 +44,12 @@ def main(config):
     else:
         # single process
         rank = 0
+    if n_gpu >= 1:
+        gpu_id = rank % n_gpu  # always 0 if n_gpu = 1
+        device = torch.device(f'cuda:{gpu_id}' if n_gpu > 0 else 'cpu')
+    else:
+        device = 'cpu'
 
-    gpu_id = rank % n_gpu  # always 0 if n_gpu = 1
-    device = torch.device(f'cuda:{gpu_id}' if n_gpu > 0 else 'cpu')
     if rank == 0:
         logger.info('Finish preparing gpu')
 
