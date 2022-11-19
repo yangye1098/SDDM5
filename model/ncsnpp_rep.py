@@ -185,9 +185,9 @@ class NCSNPP_REP(nn.Module):
         noise_level_channels = 128
         self.noise_level_emb = NoiseEmbedding(dim=noise_level_channels, scale=noise_emb_scale)
 
-
-        self.downs = nn.ModuleList([nn.Conv2d(in_channel, inner_channel,
-                           kernel_size=3, padding=1)])
+        self.first_conv = nn.Conv2d(in_channel, inner_channel,
+                           kernel_size=3, padding=1)
+        self.downs = nn.ModuleList([])
 
         self.progressive_downs = nn.ModuleList([])
         self.combiners = nn.ModuleList([])
@@ -280,7 +280,7 @@ class NCSNPP_REP(nn.Module):
         """
         # expand to 4d
         input = torch.cat([x_t.real, x_t.imag, noisy_condition.real, noisy_condition.imag], dim=1)
-
+        input = self.first_conv(input)
         # time  is in [t_eps, 1]
 
         t = self.noise_level_emb(time)
