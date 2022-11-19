@@ -28,7 +28,7 @@ class NoiseEmbedding(nn.Module):
         self.embedding_vector = scale*10.0 ** (-step * 4.0)
 
         self.projection1 = nn.Linear(dim, dim*4)
-        self.projection2 = nn.Linear(dim*4, dim*4)
+        self.projection2 = nn.Linear(dim*4, dim)
 
     def forward(self, t):
         # TODO: fast sampling
