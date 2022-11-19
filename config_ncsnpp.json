@@ -1,0 +1,117 @@
+{
+    "name": "SDDM5_SDE_UNet",
+    "n_gpu": 1,
+    "sample_rate": 16000,
+    "n_spec_frames": 256,
+    "spec_transformer": {
+        "type": "CSpecTransformer",
+        "args": {
+            "n_fft": 510,
+            "hop_length": 128,
+            "spec_factor":0.15,
+            "spec_abs_exponent":0.5,
+            "transform_type": "exponent"
+        }
+    },
+    "arch": {
+        "type": "SDDM_SDE",
+        "args": {
+            "t_eps" :3e-2,
+            "predictor_name": "reverse_diffusion",
+            "corrector_name": "ald",
+            "reverse_sample_steps": 30,
+            "corrector_steps": 1,
+            "snr": 0.5
+        }
+    },
+
+    "diffusion": {
+        "type": "OUVESDE",
+        "args": {
+            "theta": 1.5,
+            "sigma_min": 0.05,
+            "sigma_max": 0.5,
+            "N": 1000
+        }
+    },
+    "network": {
+        "type": "UNet",
+        "args": {
+            "in_channel": 4,
+            "out_channel": 2,
+            "inner_channel": 128,
+            "norm_groups": 32,
+            "channel_mults": [1,1,2,2,2,2],
+            "attn_layers": [4],
+            "res_blocks": 2,
+            "dropout": 0,
+            "noise_emb_scale": 1000
+        }
+    },
+
+    "tr_dataset": {
+        "type": "CSpecDataset",
+        "args":{
+            "data_root": "data/Voicebank-DEMAND/train_28spk",
+            "normalize": "noisy"
+        }
+    },
+    "val_dataset": {
+        "type": "AudioDataset",
+        "args":{
+            "data_root": "data/Voicebank-DEMAND/test",
+            "datatype": ".wav"
+        }
+    },
+
+    "infer_dataset": {
+        "type": "AudioDataset",
+        "args":{
+            "data_root": "data/Voicebank-DEMAND/test",
+            "datatype": ".wav"
+        }
+    },
+    "tr_data_loader": {
+        "type": "DataLoader",
+        "args":{
+            "batch_size": 2,
+            "shuffle": true,
+            "num_workers": 1
+        }
+    },
+    "val_data_loader": {
+        "type": "DataLoader",
+        "args":{
+            "batch_size": 1,
+            "shuffle": true,
+            "num_workers": 1
+        }
+    },
+    "optimizer": {
+        "type": "Adam",
+        "args":{
+            "lr": 0.0002,
+            "weight_decay": 0,
+            "amsgrad": true
+        }
+    },
+    "loss": "l2_loss",
+    "metrics": [
+        "sisnr"
+    ],
+    "trainer": {
+        "epochs": 1000,
+
+        "save_dir": "saved/",
+        "save_period": 1,
+        "valid_period": 1,
+        "verbosity": 2,
+        "n_valid_data_batch": 1,
+        "log_step": 10,
+        
+        "monitor": "min val_loss",
+        "early_stop": -1,
+
+        "tensorboard": true
+    }
+}
