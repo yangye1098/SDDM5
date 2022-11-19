@@ -170,7 +170,6 @@ class NCSNPP_REP(nn.Module):
                 in_channel=4,
                 out_channel=2,
                 inner_channel=128,
-                norm_groups=32,
                 channel_mults=(1, 1, 2, 2, 2, 2),
                 attn_layers=(4,),
                 res_blocks=2,
@@ -323,7 +322,7 @@ class NCSNPP_REP(nn.Module):
                 n_up = n_up+1
 
 
-        output = self.final_conv(progressive_input)
+        output = self.final_conv((progressive_input+input)/math.sqrt(2))
         output = torch.permute(output, (0, 2, 3, 1)).contiguous()
         output = torch.view_as_complex(output)[:, None, :, :] # same shape as x_t
 
