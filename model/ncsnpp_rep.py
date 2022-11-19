@@ -122,8 +122,9 @@ class AttnBlock(nn.Module):
 
 # building block modules
 class Block(nn.Module):
-    def __init__(self, dim, dim_out, groups=32, dropout=0.):
+    def __init__(self, dim, dim_out, dropout=0.):
         super().__init__()
+        groups = min(dim//4, 32)
         self.block = nn.Sequential(
             nn.GroupNorm(groups, dim),
             Swish(),
@@ -139,10 +140,9 @@ class ResnetBlock(nn.Module):
 
     def __init__(self, dim, dim_out, noise_level_emb_dim, dropout=0., with_attn=False):
         super().__init__()
-        norm_groups = min(dim//4, 32)
         self.noise_emb = nn.Linear(noise_level_emb_dim, dim_out)
-        self.block1 = Block(dim, dim_out, groups=norm_groups)
-        self.block2 = Block(dim_out, dim_out, groups=norm_groups, dropout=dropout)
+        self.block1 = Block(dim, dim_out)
+        self.block2 = Block(dim_out, dim_out, dropout=dropout)
         self.res_conv = nn.Conv2d(
             dim, dim_out, 1) if dim != dim_out else nn.Identity()
         self.with_attn = with_attn
@@ -269,7 +269,11 @@ class NCSNPP_REP(nn.Module):
 
 
 
-
+        self.final_progressive_branch = nn.Sequential(
+            nn.GroupNorm(num_groups=min(n_channel_out // 4, 32), num_channels=n_channel_out),
+            Swish(),
+            nn.Conv2d(n_channel_out, in_channel, kernel_size=3, padding=1),
+        )
         n_channel_in = n_channel_out
         self.final_conv = nn.Conv2d(in_channel, out_channel,kernel_size=1)
         #self.final_conv = Block(n_channel_in, out_channel, groups=norm_groups)
@@ -322,7 +326,7 @@ class NCSNPP_REP(nn.Module):
                 n_up = n_up+1
 
 
-        output = self.final_conv((progressive_input+input)/math.sqrt(2))
+        output = self.final_conv((progressive_input+ self.final_progressive_branch(input))/math.sqrt(2))
         output = torch.permute(output, (0, 2, 3, 1)).contiguous()
         output = torch.view_as_complex(output)[:, None, :, :] # same shape as x_t
 
