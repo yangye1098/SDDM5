@@ -211,7 +211,6 @@ class NCSNPP_REP(nn.Module):
 
         self.progressive_downs = nn.ModuleList([])
         self.progressive_down_branches = nn.ModuleList([])
-        self.combiners = nn.ModuleList([])
 
         # record the number of output channels
         feat_channels = [inner_channel]
