@@ -274,8 +274,8 @@ class NCSNPP_REP(nn.Module):
                     Swish(),
                     nn.Conv2d(n_channel_out, in_channel, kernel_size=3, padding=1),
             ))
+            self.progressive_ups.append(Upsample(in_channel))
             if ind != 0:
-                self.progressive_ups.append(Upsample(in_channel))
                 self.ups.append(ResnetBlock(
                 n_channel_in, n_channel_out, noise_level_emb_dim=noise_level_channels,
                 dropout=dropout, with_attn=False, with_up=True))
