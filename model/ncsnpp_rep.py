@@ -241,9 +241,10 @@ class NCSNPP_REP(nn.Module):
 
         self.mid = nn.ModuleList([])
 
-        self.mid = nn.Sequential(
-        ResnetBlock(n_channel_in, n_channel_out, noise_level_emb_dim=noise_level_channels, dropout=dropout, with_attn=True),
-        ResnetBlock(n_channel_in, n_channel_out, noise_level_emb_dim=noise_level_channels, dropout=dropout, with_attn=False))
+        self.mid.append(ResnetBlock(
+            n_channel_in, n_channel_out, noise_level_emb_dim=noise_level_channels, dropout=dropout, with_attn=True))
+        self.mid.append(ResnetBlock(
+                n_channel_in, n_channel_out, noise_level_emb_dim=noise_level_channels, dropout=dropout, with_attn=False))
 
         self.ups = nn.ModuleList([])
         self.progressive_up_branches = nn.ModuleList([])
@@ -316,7 +317,11 @@ class NCSNPP_REP(nn.Module):
 
             feats.append(input)
 
-        input = self.mid(input, t)
+        for layer in self.mid:
+            if isinstance(layer, ResnetBlock):
+                input = layer(input, t)
+            else:
+                raise ValueError
 
         n_up = 0
         progressive_input = 0
