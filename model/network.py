@@ -4,3 +4,4 @@ from .unetwithspec import UNetWithSpec
 from .unet import UNet
 from .ncsnpp_rep import NCSNPP_REP
 from .wavegrad import DenoiseWaveGrad
+from .ncsnpp import NCSNpp

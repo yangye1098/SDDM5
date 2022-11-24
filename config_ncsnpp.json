@@ -40,7 +40,7 @@
             "in_channel": 4,
             "out_channel": 2,
             "inner_channel": 128,
-            "channel_mults": [1,1,2,2,2,2],
+            "channel_mults": [1,1,2,2,2,2,2],
             "attn_layers": [4],
             "res_blocks": 2,
             "dropout": 0,
