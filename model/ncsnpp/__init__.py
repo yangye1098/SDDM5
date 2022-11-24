@@ -1,1 +1,1 @@
-from ncsnpp import NCSNpp
+from .ncsnpp import NCSNpp
