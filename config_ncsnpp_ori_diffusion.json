@@ -1,6 +1,5 @@
 {
     "name": "SDDM5_SDE_UNet",
-    "n_gpu": 1,
     "sample_rate": 16000,
     "n_spec_frames": 256,
     "spec_transformer": {
