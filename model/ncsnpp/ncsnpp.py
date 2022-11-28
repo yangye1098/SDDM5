@@ -249,7 +249,7 @@ class NCSNpp(nn.Module):
         # timestep/noise_level embedding; only for continuous training
         modules = self.all_modules
         m_idx = 0
-        print(time_cond.shape)
+        time_cond = time_cond.squeeze()
         x = torch.cat([x_t.real, x_t.imag, noisy_condition.real, noisy_condition.imag], dim=1)
         # Convert real and imaginary parts of (x,y) into four channel dimensions
 
