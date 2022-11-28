@@ -17,7 +17,8 @@ class SDDM(nn.Module):
         self.noise_condition = noise_condition
         self.p_transition = p_transition
         self.q_transition = q_transition
-        if noise_condition != 'sqrt_alpha_bar' and noise_condition != 'time_step':
+        if noise_condition != 'sqrt_alpha_bar' and noise_condition != 'time_step' \
+            and noise_condition != 'normalized_time_step':
             raise NotImplementedError
 
         if p_transition != 'original' and p_transition != 'supportive' \
@@ -29,7 +30,7 @@ class SDDM(nn.Module):
             raise NotImplementedError
 
     # train step
-    def forward(self, clean_audio, noisy_audio, noisy_spec):
+    def forward(self, clean_audio, noisy_audio, extra_condition=None):
         """
         clean_audio is the clean_audio source
         condition is the noisy conditional input
@@ -40,22 +41,26 @@ class SDDM(nn.Module):
             noise = torch.randn_like(clean_audio, device=clean_audio.device)
             x_t, noise_level, t = self.diffusion.q_stochastic(clean_audio, noise)
             if self.noise_condition == 'sqrt_alpha_bar':
-                predicted = self.noise_estimate_model(x_t, noisy_audio, noisy_spec, noise_level)
+                predicted = self.noise_estimate_model(x_t, noise_level, noisy_audio)
             elif self.noise_condition == 'time_step':
-                predicted = self.noise_estimate_model(x_t, noisy_audio, noisy_spec, t)
+                predicted = self.noise_estimate_model(x_t, t, noisy_audio)
+            elif self.noise_condition == 'normalized_time_step':
+                t = t/self.num_timesteps
+                predicted = self.noise_estimate_model(x_t, t, noisy_audio)
             else:
                 raise ValueError
         elif self.q_transition == 'conditional':
-            noise = torch.randn_like(clean_audio, device=clean_audio.device)
-            x_t, noise, t = self.diffusion.q_stochastic_conditional(clean_audio, noisy_audio, noise)
-            predicted = self.noise_estimate_model(noisy_spec, x_t, t)
+            raise ValueError
+            # noise = torch.randn_like(clean_audio, device=clean_audio.device)
+            # x_t, noise, t = self.diffusion.q_stochastic_conditional(clean_audio, noisy_audio, noise)
+            # predicted = self.noise_estimate_model(x_t, t, extra_condition)
         else:
             raise ValueError
 
         return predicted, noise
 
     @torch.no_grad()
-    def infer(self, noisy_audio, noisy_spec, continuous=False):
+    def infer(self, noisy_audio, extra_condition=None, continuous=False):
         # initial input
 
         # TODO: predict noise level to reduce computation cost
@@ -94,39 +99,47 @@ class SDDM(nn.Module):
                 if self.noise_condition == 'sqrt_alpha_bar':
                     noise_level = self.diffusion.get_noise_level(t) * torch.ones(tuple(noise_level_sample_shape),
                                                                                  device=noisy_audio.device)
-                    predicted = self.noise_estimate_model(x_t, noisy_audio, noisy_spec, noise_level)
+                    predicted = self.noise_estimate_model(x_t, noise_level, noisy_audio)
                 elif self.noise_condition == 'time_step':
                     time_steps = t * torch.ones(tuple(noise_level_sample_shape), device=noisy_audio.device)
-                    predicted = self.noise_estimate_model(x_t, noisy_audio, noisy_spec, time_steps)
+                    predicted = self.noise_estimate_model(x_t, time_steps, noisy_audio)
+
+                elif self.noise_condition == 'normalized_time_step':
+                    t = t/self.num_timesteps
+                    time_steps = t * torch.ones(tuple(noise_level_sample_shape), device=noisy_audio.device)
+                    predicted = self.noise_estimate_model(x_t, time_steps, noisy_audio)
+
                 else:
                     raise ValueError
 
                 x_t = self.diffusion.p_transition(x_t, t, predicted)
             elif self.p_transition == 'sr3':
 
-                if self.noise_condition == 'sqrt_alpha_bar':
-                    noise_level = self.diffusion.get_noise_level(t) * torch.ones(tuple(noise_level_sample_shape),
-                                                                                 device=noisy_audio.device)
-                    predicted = self.noise_estimate_model(x_t, noisy_audio, noisy_spec, noise_level)
-                elif self.noise_condition == 'time_step':
-                    time_steps = t * torch.ones(tuple(noise_level_sample_shape), device=noisy_audio.device)
-                    predicted = self.noise_estimate_model(x_t, noisy_audio, noisy_spec, time_steps)
-                else:
-                    raise ValueError
+                raise ValueError
+                # if self.noise_condition == 'sqrt_alpha_bar':
+                #     noise_level = self.diffusion.get_noise_level(t) * torch.ones(tuple(noise_level_sample_shape),
+                #                                                                  device=noisy_audio.device)
+                #     predicted = self.noise_estimate_model(x_t, noisy_audio, noisy_spec, noise_level)
+                # elif self.noise_condition == 'time_step':
+                #     time_steps = t * torch.ones(tuple(noise_level_sample_shape), device=noisy_audio.device)
+                #     predicted = self.noise_estimate_model(x_t, noisy_audio, noisy_spec, time_steps)
+                # else:
+                #     raise ValueError
 
-                x_t = self.diffusion.p_transition_sr3(x_t, t, predicted)
+                # x_t = self.diffusion.p_transition_sr3(x_t, t, predicted)
             elif self.p_transition == 'conditional':
+                raise ValueError
 
-                if self.noise_condition == 'sqrt_alpha_bar':
-                    noise_level = self.diffusion.get_noise_level(t) * torch.ones(tuple(noise_level_sample_shape),
-                                                                                 device=noisy_audio.device)
-                    predicted = self.noise_estimate_model(noisy_spec, x_t, noise_level)
-                elif self.noise_condition == 'time_step':
-                    time_steps = t * torch.ones(tuple(noise_level_sample_shape), device=noisy_audio.device)
-                    predicted = self.noise_estimate_model(noisy_spec, x_t, time_steps)
-                else:
-                    raise ValueError
-                x_t = self.diffusion.p_transition_conditional(x_t, t, predicted, noisy_audio)
+                # if self.noise_condition == 'sqrt_alpha_bar':
+                #     noise_level = self.diffusion.get_noise_level(t) * torch.ones(tuple(noise_level_sample_shape),
+                #                                                                  device=noisy_audio.device)
+                #     predicted = self.noise_estimate_model(noisy_spec, x_t, noise_level)
+                # elif self.noise_condition == 'time_step':
+                #     time_steps = t * torch.ones(tuple(noise_level_sample_shape), device=noisy_audio.device)
+                #     predicted = self.noise_estimate_model(noisy_spec, x_t, time_steps)
+                # else:
+                #     raise ValueError
+                # x_t = self.diffusion.p_transition_conditional(x_t, t, predicted, noisy_audio)
             else:
                 raise ValueError
 
