@@ -5,9 +5,8 @@ from tqdm import tqdm
 
 import data_loader as module_data
 import model.loss as module_loss
-import model.metric as module_metric
 import model.model as module_arch
-import model.sde as module_diffusion
+import model.diffusion.sde as module_diffusion
 import model.network as module_network
 
 from evaluate_results import evaluate

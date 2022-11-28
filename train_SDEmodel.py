@@ -5,14 +5,13 @@ import data_loader as module_data
 import model.loss as module_loss
 import model.metric as module_metric
 import model.model as module_arch
-import model.sde as module_diffusion
+import model.diffusion.sde as module_diffusion
 import model.network as module_network
 from parse_config import ConfigParser
 from trainer import SDETrainer
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DistributedSampler
-import torch_ema
 import os
 
 torch.backends.cudnn.benchmark = True
