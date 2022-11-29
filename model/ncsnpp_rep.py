@@ -1,8 +1,8 @@
-import math
 import torch
 from torch import nn
 import math
-
+from ncsnpp.ncsnpp_utils import up_or_down_sampling
+import torch.nn.functional as F
 
 
 def conv3x3(in_planes, out_planes) :
@@ -45,45 +45,78 @@ class NoiseEmbedding(nn.Module):
         encoding = torch.cat([torch.sin(encoding), torch.cos(encoding)], dim=-1) # [B, self.dim]
         return encoding
 
+
 class Upsample(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, in_ch=None, out_ch=None, with_conv=False, fir=False,
+                 fir_kernel=(1, 3, 3, 1)):
         super().__init__()
-        self.up = nn.Upsample(scale_factor=2, mode="nearest")
-        self.conv = nn.Conv2d(dim, dim, 3, padding=1)
+        out_ch = out_ch if out_ch else in_ch
+        if not fir:
+            if with_conv:
+                self.Conv_0 = conv3x3(in_ch, out_ch)
+        else:
+            if with_conv:
+                self.Conv2d_0 = up_or_down_sampling.Conv2d(in_ch, out_ch,
+                                                           kernel=3, up=True,
+                                                           resample_kernel=fir_kernel,
+                                                           use_bias=True
+                                                           )
+        self.fir = fir
+        self.with_conv = with_conv
+        self.fir_kernel = fir_kernel
+        self.out_ch = out_ch
 
     def forward(self, x):
-        return self.conv(self.up(x))
+        B, C, H, W = x.shape
+        if not self.fir:
+            h = F.interpolate(x, (H * 2, W * 2), 'nearest')
+            if self.with_conv:
+                h = self.Conv_0(h)
+        else:
+            if not self.with_conv:
+                h = up_or_down_sampling.upsample_2d(x, self.fir_kernel, factor=2)
+            else:
+                h = self.Conv2d_0(x)
+
+        return h
+
 
 class Downsample(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, in_ch=None, out_ch=None, with_conv=True, fir=True,
+                 fir_kernel=(1, 3, 3, 1)):
         super().__init__()
-        self.conv = nn.Conv2d(dim, dim, 3, 2, 1)
+        out_ch = out_ch if out_ch else in_ch
+        if not fir:
+            if with_conv:
+                self.Conv_0 = conv3x3(in_ch, out_ch, stride=2, padding=0)
+        else:
+            if with_conv:
+                self.Conv2d_0 = up_or_down_sampling.Conv2d(in_ch, out_ch,
+                                                           kernel=3, down=True,
+                                                           resample_kernel=fir_kernel,
+                                                           use_bias=True
+                                                           )
+        self.fir = fir
+        self.fir_kernel = fir_kernel
+        self.with_conv = with_conv
+        self.out_ch = out_ch
 
     def forward(self, x):
-        return self.conv(x)
+        B, C, H, W = x.shape
+        if not self.fir:
+            if self.with_conv:
+                x = F.pad(x, (0, 1, 0, 1))
+                x = self.Conv_0(x)
+            else:
+                x = F.avg_pool2d(x, 2, stride=2)
+        else:
+            if not self.with_conv:
+                x = up_or_down_sampling.downsample_2d(x, self.fir_kernel, factor=2)
+            else:
+                x = self.Conv2d_0(x)
 
-class UpsampleFIR(nn.Module):
-    def __init__(self):
-        super().__init__()
-        pass
+        return x
 
-    def forward(self):
-        pass
-
-class UpsampleSP(nn.Module):
-    def __init__(self):
-        super().__init__()
-        pass
-
-    def forward(self):
-        pass
-
-class DownsampleFIR(nn.Module):
-    def __init__(self):
-        super().__init__()
-        pass
-    def forward(self):
-        pass
 
 
 
@@ -122,9 +155,8 @@ class AttnBlock(nn.Module):
 
 # building block modules
 class Block(nn.Module):
-    def __init__(self, dim, dim_out, dropout=0.):
+    def __init__(self, dim, dim_out, groups, dropout=0.):
         super().__init__()
-        groups = min(dim//4, 32)
         self.block = nn.Sequential(
             nn.GroupNorm(groups, dim),
             Swish(),
@@ -140,9 +172,13 @@ class ResnetBlock(nn.Module):
 
     def __init__(self, dim, dim_out, noise_level_emb_dim, dropout=0., with_attn=False, with_down=False, with_up=False):
         super().__init__()
+        groups = min(dim//4, 32)
+        self.fir_kernel = (1, 3, 3, 1)
         self.noise_emb = nn.Linear(noise_level_emb_dim, dim_out)
-        self.block1 = Block(dim, dim_out)
-        self.block2 = Block(dim_out, dim_out, dropout=dropout)
+        self.before_block = nn.Sequential(nn.GroupNorm(groups, dim),
+                                          Swish())
+        self.before_conv = nn.Conv2d(dim, dim_out, 3, padding=1)
+        self.block2 = Block(dim_out, dim_out, groups, dropout=dropout)
         self.res_conv = nn.Conv2d(
             dim, dim_out, 1) if dim != dim_out or with_down or with_up else nn.Identity()
         self.with_attn = with_attn
@@ -150,30 +186,23 @@ class ResnetBlock(nn.Module):
         if with_attn:
             self.attn = AttnBlock(dim_out)
         self.with_down = with_down
-        # regular down sample
-        if with_down:
-            self.down_x = Downsample(dim_out)
-            self.down_h = Downsample(dim_out)
-
         self.with_up = with_up
-        if with_up:
-            self.up_x = Upsample(dim_out)
-            self.up_h = Upsample(dim_out)
-
 
     def forward(self, x, time_emb):
         # time_emb: [B, noise_level_emb_dim]
         # x: [B, dim, N, N]
         b = x.shape[0]
         h = x
-        if self.with_up:
-            h = self.up_h(h)
-            x = self.up_x(x)
-        elif self.with_down:
-            h = self.down_h(h)
-            x = self.down_x(x)
+        h = self.before_block(h)
 
-        h = self.block1(h)
+        if self.with_up:
+            h = up_or_down_sampling.upsample_2d(h, k=self.fir_kernel, factor=2)
+            x = up_or_down_sampling.upsample_2d(x, k=self.fir_kernel, factor=2)
+        elif self.with_down:
+            h = up_or_down_sampling.downsample_2d(h, k=self.fir_kernel, factor=2)
+            x = up_or_down_sampling.downsample_2d(x, k=self.fir_kernel, factor=2)
+
+        h = self.before_conv(h)
         h = h + self.noise_emb(time_emb).view((b, -1, 1, 1))
         h = self.block2(h)
         h = (h + self.res_conv(x))/math.sqrt(2.)
@@ -207,9 +236,10 @@ class NCSNPP_REP(nn.Module):
 
         self.first_conv = nn.Conv2d(in_channel, inner_channel,
                            kernel_size=3, padding=1)
+        self.fir_kernel = (1, 3, 3, 1)
+
         self.downs = nn.ModuleList([])
 
-        self.progressive_downs = nn.ModuleList([])
         self.progressive_down_branches = nn.ModuleList([])
 
         # record the number of output channels
@@ -232,7 +262,6 @@ class NCSNPP_REP(nn.Module):
                 # doesn't change # channels
                 self.downs.append(ResnetBlock(
                     n_channel_in, n_channel_out, noise_level_emb_dim=noise_level_channels, dropout=dropout, with_attn=False, with_down=True))
-                self.progressive_downs.append(Downsample(in_channel))
                 self.progressive_down_branches.append(nn.Conv2d(in_channel, n_channel_out, kernel_size=1))
                 feat_channels.append(n_channel_out)
 
@@ -247,7 +276,6 @@ class NCSNPP_REP(nn.Module):
 
         self.ups = nn.ModuleList([])
         self.progressive_up_branches = nn.ModuleList([])
-        self.progressive_ups = nn.ModuleList([])
 
         n_channel_in = n_channel_out
         for ind in reversed(range(num_mults)):
@@ -272,7 +300,6 @@ class NCSNPP_REP(nn.Module):
                     nn.Conv2d(n_channel_out, in_channel, kernel_size=3, padding=1),
             ))
             if ind != 0:
-                self.progressive_ups.append(Upsample(in_channel))
                 self.ups.append(ResnetBlock(
                 n_channel_in, n_channel_out, noise_level_emb_dim=noise_level_channels,
                 dropout=dropout, with_attn=False, with_up=True))
@@ -304,7 +331,7 @@ class NCSNPP_REP(nn.Module):
                 input = layer(input, t)
                 if layer.with_down:
                     # downsample layer
-                    progressive_input = self.progressive_downs[n_down](progressive_input)
+                    progressive_input = up_or_down_sampling.downsample_2d(progressive_input, k=self.fir_kernel, factor=2)
                     input = input + self.progressive_down_branches[n_down](progressive_input) # sum
                     n_down = n_down + 1
 
@@ -329,7 +356,7 @@ class NCSNPP_REP(nn.Module):
                 if layer.with_up:
                     progressive_input = progressive_input + self.progressive_up_branches[n_up](input)
                     # upsample layer
-                    progressive_input = self.progressive_ups[n_up](progressive_input)
+                    progressive_input = up_or_down_sampling.upsample_2d(progressive_input, k=self.fir_kernel, factor=2)
                     n_up = n_up+1
 
                     input = layer(input, t)
