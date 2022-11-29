@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 import math
-from ncsnpp.ncsnpp_utils import up_or_down_sampling
+from .ncsnpp.ncsnpp_utils import up_or_down_sampling
 import torch.nn.functional as F
 
 
