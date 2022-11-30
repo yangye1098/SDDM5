@@ -294,7 +294,7 @@ class GaussianDiffusion(nn.Module):
             noise = torch.randn_like(x_t)
             x_t_1 += torch.sqrt(self.betas[t]) * noise
 
-        return x_t_1.clamp_(-1., 1.)
+        return x_t_1
 
     @torch.no_grad()
     def p_transition(self, x_t, t, predicted):
@@ -309,7 +309,7 @@ class GaussianDiffusion(nn.Module):
             noise = torch.randn_like(x_t)
             x_t_1 += self.sigma[t] * noise
 
-        return x_t_1.clamp_(-1., 1.)
+        return x_t_1
 
     @torch.no_grad()
     def p_transition_supportive(self, x_t, t, predicted_noise, condition):
@@ -328,7 +328,7 @@ class GaussianDiffusion(nn.Module):
         if t > 1:
             noise = torch.randn_like(x_t)
             x_t_1 += max(0, self.supportive_sigma_hat[t]) * noise
-        return x_t_1.clamp_(-1., 1.)
+        return x_t_1
 
     @torch.no_grad()
     def p_transition_conditional(self, x_t, t, predicted_noise, noisy_audio):
@@ -360,7 +360,7 @@ class GaussianDiffusion(nn.Module):
 
 
 
-        return x_t_1.clamp_(-1., 1.)
+        return x_t_1
 
     def q_stochastic(self, x_0, noise, t_is_integer=False):
         """

@@ -102,9 +102,9 @@ class SDDM(nn.Module):
                     predicted = self.noise_estimate_model(x_t, time_steps, noisy_audio)
 
                 elif self.noise_condition == 'normalized_time_step':
-                    t = t/self.num_timesteps
-                    time_steps = t * torch.ones(tuple(noise_level_sample_shape), device=noisy_audio.device)
-                    predicted = self.noise_estimate_model(x_t, time_steps, noisy_audio)
+                    t_normalized = t/self.num_timesteps
+                    t_normalized = t_normalized * torch.ones(tuple(noise_level_sample_shape), device=noisy_audio.device)
+                    predicted = self.noise_estimate_model(x_t, t_normalized, noisy_audio)
 
                 else:
                     raise ValueError

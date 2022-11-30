@@ -160,7 +160,6 @@ class SDETrainer():
         #     batch_start = self.epoch_start
 
         for batch_idx, (clean, noisy) in enumerate(self.data_loader):
-            # clean and noisy are spec
             clean, noisy = clean.to(self.device), noisy.to(self.device)
 
             self.optimizer.zero_grad()
