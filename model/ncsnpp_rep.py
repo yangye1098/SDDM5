@@ -19,6 +19,25 @@ def silu(x):
     return x * torch.sigmoid(x)
 
 
+class GaussianFourierProjection(nn.Module):
+    """Gaussian Fourier embeddings for noise levels."""
+
+    def __init__(self, dim=256, scale=1.0):
+        super().__init__()
+        self.W = nn.Parameter(torch.randn(dim) * scale, requires_grad=False)
+
+        self.projection1 = nn.Linear(dim, dim * 4)
+        self.projection2 = nn.Linear(dim * 4, dim * 4)
+
+    def forward(self, x):
+        x_proj = x[:, None] * self.W[None, :] * 2 * torch.pi
+        x_proj = torch.cat([torch.sin(x_proj), torch.cos(x_proj)], dim=-1)
+        x_proj = self.projection1(x_proj)
+        x_proj = silu(x_proj)
+        x_proj = self.projection2(x_proj)
+        x_proj = silu(x_proj)
+        return x_proj
+
 class NoiseEmbedding(nn.Module):
     def __init__(self, dim=128, scale=1000):
         super().__init__()
@@ -127,8 +146,9 @@ class AttnBlock(nn.Module):
 
         self.n_head = n_head
 
-        self.norm = nn.GroupNorm(norm_groups, in_channel)
-        self.qkv = nn.Conv2d(in_channel, in_channel * 3, 1, bias=False)
+        self.norm = nn.GroupNorm(norm_groups, in_channel, eps=1e-6)
+        # originally bias = False, pytorch default bias = True
+        self.qkv = nn.Conv2d(in_channel, in_channel * 3, 1, bias=True)
         self.out = nn.Conv2d(in_channel, in_channel, 1)
 
     def forward(self, input):
@@ -158,9 +178,9 @@ class Block(nn.Module):
     def __init__(self, dim, dim_out, groups, dropout=0.):
         super().__init__()
         self.block = nn.Sequential(
-            nn.GroupNorm(groups, dim),
+            nn.GroupNorm(groups, dim, eps=1e-6),
             Swish(),
-            nn.Dropout(dropout) if dropout != 0. else nn.Identity(),
+            nn.Dropout(dropout),
             nn.Conv2d(dim, dim_out, 3, padding=1)
         )
 
@@ -223,16 +243,22 @@ class NCSNPP_REP(nn.Module):
                 attn_layers=(4,),
                 res_blocks=2,
                 dropout=0.,
-                noise_emb_scale=1000,
+                embedding_type='positional',
+                noise_emb_scale=1000
                 ):
         super().__init__()
 
         # first conv raise # channels to inner_channel
 
 
-        noise_level_channels = 128
-        self.noise_level_emb = NoiseEmbedding(dim=noise_level_channels, scale=noise_emb_scale)
-        noise_level_channels = noise_level_channels * 4
+        if embedding_type == 'positional':
+            self.noise_level_emb = NoiseEmbedding(dim=128, scale=noise_emb_scale)
+        elif embedding_type == 'fourier':
+            self.noise_level_emb = GaussianFourierProjection(dim=256, scale=noise_emb_scale)
+        else:
+            raise NotImplementedError
+
+        noise_level_channels = 512
 
         self.first_conv = nn.Conv2d(in_channel, inner_channel,
                            kernel_size=3, padding=1)
@@ -295,7 +321,7 @@ class NCSNPP_REP(nn.Module):
 
             # up sample
             self.progressive_up_branches.append(nn.Sequential(
-                    nn.GroupNorm(num_groups=min(n_channel_out // 4, 32), num_channels=n_channel_out),
+                    nn.GroupNorm(num_groups=min(n_channel_out // 4, 32), num_channels=n_channel_out, eps=1e-6),
                     Swish(),
                     nn.Conv2d(n_channel_out, in_channel, kernel_size=3, padding=1),
             ))
@@ -366,9 +392,9 @@ class NCSNPP_REP(nn.Module):
                 raise ValueError
 
         # last progressive up
-        progressive_input = progressive_input + self.progressive_up_branches[n_up](input)
+        output = progressive_input + self.progressive_up_branches[n_up](input)
 
-        output = self.final_conv(progressive_input)
+        output = self.final_conv(output)
         output = torch.permute(output, (0, 2, 3, 1)).contiguous()
         output = torch.view_as_complex(output)[:, None, :, :] # same shape as x_t
 
