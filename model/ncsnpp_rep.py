@@ -22,11 +22,11 @@ def silu(x):
 class GaussianFourierProjection(nn.Module):
     """Gaussian Fourier embeddings for noise levels."""
 
-    def __init__(self, dim=256, scale=1.0):
+    def __init__(self, dim=128, scale=1.0):
         super().__init__()
         self.W = nn.Parameter(torch.randn(dim) * scale, requires_grad=False)
 
-        self.projection1 = nn.Linear(dim, dim * 4)
+        self.projection1 = nn.Linear(2*dim, dim * 4)
         self.projection2 = nn.Linear(dim * 4, dim * 4)
 
     def forward(self, x):
@@ -250,15 +250,15 @@ class NCSNPP_REP(nn.Module):
 
         # first conv raise # channels to inner_channel
 
-
+        noise_emb_dim = 128
         if noise_emb_type == 'positional':
-            self.noise_level_emb = NoiseEmbedding(dim=128, scale=noise_emb_scale)
+            self.noise_level_emb = NoiseEmbedding(dim=noise_emb_dim, scale=noise_emb_scale)
         elif noise_emb_type == 'fourier':
-            self.noise_level_emb = GaussianFourierProjection(dim=256, scale=noise_emb_scale)
+            self.noise_level_emb = GaussianFourierProjection(dim=noise_emb_dim, scale=noise_emb_scale)
         else:
             raise NotImplementedError
 
-        noise_level_channels = 512
+        noise_level_channels = noise_emb_dim * 4
 
         self.first_conv = nn.Conv2d(in_channel, inner_channel,
                            kernel_size=3, padding=1)
