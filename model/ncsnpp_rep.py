@@ -243,7 +243,7 @@ class NCSNPP_REP(nn.Module):
                 attn_layers=(4,),
                 res_blocks=2,
                 dropout=0.,
-                embedding_type='positional',
+                noise_emb_type='positional',
                 noise_emb_scale=1000
                 ):
         super().__init__()
@@ -251,9 +251,9 @@ class NCSNPP_REP(nn.Module):
         # first conv raise # channels to inner_channel
 
 
-        if embedding_type == 'positional':
+        if noise_emb_type == 'positional':
             self.noise_level_emb = NoiseEmbedding(dim=128, scale=noise_emb_scale)
-        elif embedding_type == 'fourier':
+        elif noise_emb_type == 'fourier':
             self.noise_level_emb = GaussianFourierProjection(dim=256, scale=noise_emb_scale)
         else:
             raise NotImplementedError
